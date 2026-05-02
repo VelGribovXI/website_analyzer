@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализатор посещаемости сайтов</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+        .card {
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+            padding: 20px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            padding: 12px 30px;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .stats-number {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        .device-icon {
+            font-size: 2em;
+            margin-right: 10px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="card-header text-center">
+                <h1>📊 Анализатор посещаемости сайтов</h1>
+                <p class="mb-0">Анализируйте трафик любого веб-сайта</p>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-8 mx-auto">
+                        <div class="input-group mb-3">
+                            <input type="text" class="form-control form-control-lg" id="websiteUrl" 
+                                   placeholder="Введите URL сайта (например: example.com)">
+                            <button class="btn btn-primary btn-lg" onclick="analyzeWebsite()">
+                                Анализировать
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="loading" id="loading">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Анализируем данные...</p>
+                </div>
+                
+                <div id="results" style="display: none;">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5 class="card-title">Всего посещений</h5>
+                                    <div class="stats-number" id="totalVisits">0</div>
+                                    <small class="text-muted">за последние 30 дней</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5 class="card-title">Анализируемый сайт</h5>
+                                    <div id="websiteUrlDisplay" style="word-break: break-all;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card text-center">
+                                <div class="card-body">
+                                    <h5 class="card-title">Ваше устройство</h5>
+                                    <div id="currentDevice"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-4">
+                        <div class="col-md-8">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">📈 Динамика посещений</h5>
+                                    <canvas id="visitsChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="card-title">📱 Устройства посетителей</h5>
+                                    <canvas id="devicesChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let visitsChart = null;
+        let devicesChart = null;
+        
+        async function analyzeWebsite() {
+            const url = document.getElementById('websiteUrl').value;
+            
+            if (!url) {
+                alert('Пожалуйста, введите URL сайта');
+                return;
+            }
+            
+            // Показываем загрузку
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('results').style.display = 'none';
+            
+            try {
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: url })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert(data.error);
+                    return;
+                }
+                
+                // Обновляем данные на странице
+                document.getElementById('totalVisits').textContent = data.total_visits.toLocaleString();
+                document.getElementById('websiteUrlDisplay').textContent = data.url;
+                document.getElementById('currentDevice').innerHTML = getDeviceIcon(data.current_device) + ' ' + data.current_device;
+                
+                // Создаем график посещений
+                const dates = data.daily_stats.map(item => item.date);
+                const visits = data.daily_stats.map(item => item.visits);
+                
+                if (visitsChart) {
+                    visitsChart.destroy();
+                }
+                
+                const ctx = document.getElementById('visitsChart').getContext('2d');
+                visitsChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: dates,
+                        datasets: [{
+                            label: 'Посещения в день',
+                            data: visits,
+                            borderColor: 'rgb(102, 126, 234)',
+                            backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                            tension: 0.1,
+                            fill: true
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'top',
+                            },
+                            title: {
+                                display: false
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Количество посещений'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Дата'
+                                },
+                                ticks: {
+                                    maxRotation: 45,
+                                    minRotation: 45
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Создаем круговую диаграмму устройств
+                if (devicesChart) {
+                    devicesChart.destroy();
+                }
+                
+                const devicesCtx = document.getElementById('devicesChart').getContext('2d');
+                devicesChart = new Chart(devicesCtx, {
+                    type: 'pie',
+                    data: {
+                        labels: Object.keys(data.devices),
+                        datasets: [{
+                            data: Object.values(data.devices),
+                            backgroundColor: [
+                                'rgb(102, 126, 234)',
+                                'rgb(118, 75, 162)',
+                                'rgb(76, 175, 80)'
+                            ]
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: {
+                                position: 'bottom'
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const label = context.label || '';
+                                        const value = context.raw || 0;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((value / total) * 100).toFixed(1);
+                                        return `${label}: ${value.toLocaleString()} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Показываем результаты
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('results').style.display = 'block';
+                
+            } catch (error) {
+                alert('Ошибка при анализе: ' + error.message);
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+        
+        function getDeviceIcon(device) {
+            if (device.includes('Мобильное')) {
+                return '📱';
+            } else if (device.includes('Планшет')) {
+                return '📟';
+            } else {
+                return '💻';
+            }
+        }
+        
+        // Добавляем возможность анализа по нажатию Enter
+        document.getElementById('websiteUrl').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                analyzeWebsite();
+            }
+        });
+    </script>
+</body>
+</html>
